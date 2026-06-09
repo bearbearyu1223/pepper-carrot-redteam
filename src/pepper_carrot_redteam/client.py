@@ -25,6 +25,8 @@ from typing import Any
 
 from fastmcp import Client
 
+from . import tracing
+
 logger = logging.getLogger(__name__)
 
 
@@ -67,10 +69,25 @@ class RedteamMCPClient:
         content = result.structured_content
         content = content if isinstance(content, dict) else {}
         chunks = content.get("chunks", [])
+        latency = round(time.perf_counter() - t0, 3)
         logger.debug(
             "search(mode=%s k=%s ep=%s pg=%s) → %d chunks in %.2fs · %r",
-            mode, k, current_episode, current_page, len(chunks),
-            time.perf_counter() - t0, query[:60],
+            mode, k, current_episode, current_page, len(chunks), latency, query[:60],
+        )
+        tracing.record(
+            component="search", latency_s=latency, input=args,
+            output={
+                "n_chunks": len(chunks),
+                "chunks": [
+                    {
+                        "table": c.get("source_table"),
+                        "ep": (c.get("metadata") or {}).get("episode_number"),
+                        "pg": (c.get("metadata") or {}).get("page_number"),
+                        "score": round(float(c.get("score", 0.0)), 3),
+                    }
+                    for c in chunks[:5]
+                ],
+            },
         )
         return content
 
@@ -101,10 +118,20 @@ class RedteamMCPClient:
         content = result.structured_content
         content = content if isinstance(content, dict) else {}
         answer = str(content.get("answer", ""))
+        latency = round(time.perf_counter() - t0, 3)
         logger.debug(
             "ask(mode=%s ep=%s pg=%s session_in=%s → session_out=%s) → %d chars in %.2fs · %r",
             mode, episode_slug, current_page, session_id, content.get("session_id"),
-            len(answer), time.perf_counter() - t0, question[:60],
+            len(answer), latency, question[:60],
+        )
+        tracing.record(
+            component="ask", latency_s=latency, input=args,
+            output={
+                "answer_chars": len(answer),
+                "answer_head": answer[:300],
+                "session_id": content.get("session_id"),
+                "retrieved_doc_ids": content.get("retrieved_doc_ids", []),
+            },
         )
         return content
 

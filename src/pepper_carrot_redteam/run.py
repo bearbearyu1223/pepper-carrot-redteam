@@ -24,10 +24,12 @@ from .client import RedteamMCPClient
 from .config import get_config
 from .governor import Governor
 from .strategies import ALL
+from .tracing import Tracer, set_tracer
 
 logger = logging.getLogger("pepper_carrot_redteam")
 
 _FINDINGS = Path(__file__).resolve().parents[2] / "findings"
+_TRACES = Path(__file__).resolve().parents[2] / "traces"
 
 
 def _setup_logging(verbosity: int) -> None:
@@ -55,6 +57,7 @@ async def _run(
     *,
     max_tool_calls: int | None,
     dry_run: bool,
+    trace: bool,
 ) -> None:
     cfg = get_config()
     if not cfg.agent_enabled:
@@ -62,6 +65,10 @@ async def _run(
     strategy = ALL[strategy_name]
 
     run_id = datetime.now().strftime("run-%Y%m%d-%H%M%S")
+    if trace:
+        tracer = Tracer(_TRACES / f"{run_id}.jsonl", run_id)
+        set_tracer(tracer)
+        logger.info("tracing → %s", tracer.path)
     tool_cap = 1 if dry_run else (max_tool_calls if max_tool_calls is not None else cfg.max_tool_calls)
     governor = Governor(max_turns=cfg.max_turns, max_tool_calls=tool_cap, max_usd=cfg.max_usd)
     logger.info(
@@ -121,6 +128,10 @@ def main() -> None:
         help="cheap smoke test: cap to 1 tool call and do not write candidate gold.",
     )
     parser.add_argument(
+        "--no-trace", action="store_true",
+        help="disable the JSONL forensic trace (traces/<run-id>.jsonl).",
+    )
+    parser.add_argument(
         "-v", "--verbose", action="count", default=0,
         help="-v = per-probe progress; -vv = every HTTP/SDK call (debug).",
     )
@@ -131,7 +142,10 @@ def main() -> None:
     episode = args.episode if args.episode is not None else cfg.target_episode
     page = args.page if args.page is not None else cfg.target_page
     asyncio.run(
-        _run(args.strategy, episode, page, max_tool_calls=args.max_tool_calls, dry_run=args.dry_run)
+        _run(
+            args.strategy, episode, page,
+            max_tool_calls=args.max_tool_calls, dry_run=args.dry_run, trace=not args.no_trace,
+        )
     )
 
 

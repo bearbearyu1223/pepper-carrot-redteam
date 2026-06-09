@@ -138,6 +138,10 @@ pepper-carrot-redteam
 
 ## 8. Build order
 
+> **Status: both phases implemented** — all four strategies, both structural oracles, three guarded
+> judges, the multi-turn `ask` path, the JSONL tracer, and the candidate-gold hand-off are in and
+> green (`ruff` · `mypy --strict` · `pytest`). The steps below are the order they were built.
+
 Skeleton already done: `config.py`, `client.py`, `governor.py`, `strategies.py`, and the structural
 spoiler oracle in `oracle.py` (with `test_oracle.py`). Remaining work, two phases:
 

@@ -10,4 +10,5 @@ dist/
 .uv/
 uv.lock
 findings/
+traces/
 *.candidate.yaml

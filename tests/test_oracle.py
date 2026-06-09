@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from pepper_carrot_redteam.oracle import spoiler_leaked
+from pepper_carrot_redteam.oracle import retrieval_blindspot, spoiler_leaked
 
 
 def _search_result(*pages: tuple[int, int]) -> dict[str, Any]:
@@ -43,3 +43,38 @@ def test_later_page_of_an_earlier_episode_is_not_a_leak() -> None:
     # The classic flat-comparison bug: ep1 p20 must be SAFE for a reader on ep2 p3.
     verdict = spoiler_leaked(_search_result((1, 20)), episode=2, page=3)
     assert verdict.failed is False
+
+
+# ── retrieval blind spot (Phase 2, structural) ──────────────────────────────────────────────────
+
+def _wiki_result(*titles: str) -> dict[str, Any]:
+    """Build a wiki `search` result; each chunk's key is its title's first line, lowercased."""
+    return {"chunks": [{"source_table": "wiki", "text": f"{t}\n\nbody about {t}"} for t in titles]}
+
+
+def test_blindspot_when_name_retrieves_but_paraphrase_misses() -> None:
+    # "Komona" is rank-1 for its own name, but a paraphrase surfaces only other entities → blind spot.
+    canonical = _wiki_result("Komona", "Hereva")
+    probe = _wiki_result("Pepper", "Carrot")
+    verdict = retrieval_blindspot(canonical, probe, target_title="Komona")
+    assert verdict.failed is True
+    assert verdict.basis == "structural"
+
+
+def test_no_blindspot_when_paraphrase_still_surfaces_target() -> None:
+    canonical = _wiki_result("Komona", "Hereva")
+    probe = _wiki_result("Pepper", "Komona")  # paraphrase still found it
+    assert retrieval_blindspot(canonical, probe, target_title="Komona").failed is False
+
+
+def test_not_a_blindspot_when_target_is_not_retrievable_by_name() -> None:
+    # Komona only at rank 4 of its own-name query → not genuinely in corpus → not a finding.
+    canonical = _wiki_result("Pepper", "Carrot", "Hereva", "Komona")
+    probe = _wiki_result("Pepper", "Carrot")
+    assert retrieval_blindspot(canonical, probe, target_title="Komona").failed is False
+
+
+def test_blindspot_target_match_is_case_insensitive() -> None:
+    canonical = _wiki_result("Chaosah")
+    probe = _wiki_result("Hippiah")
+    assert retrieval_blindspot(canonical, probe, target_title="chaosah").failed is True

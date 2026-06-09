@@ -1,11 +1,12 @@
 # pepper-carrot-redteam
 
-> **Status: Phase 1 (MVP) implemented.** The agent loop, both guarded judges, the multi-turn `ask`
-> path, and the candidate-gold hand-off are working and green (`ruff` · `mypy --strict` · `pytest`).
-> Phase 2 (out-of-domain/injection, retrieval blind spots, JSONL tracer) is designed but not yet
-> built. Design lives in the build plan ([`docs/DESIGN.md`](docs/DESIGN.md)) and two decision
-> records: [ADR 0001](docs/decisions/0001-explore-agentically-judge-structurally.md) (explore
-> agentically, judge structurally) and
+> **Status: implemented** (both phases), green on `ruff` · `mypy --strict` · `pytest`. Four
+> strategies — **spoiler**, **hallucination**, **injection**, **blindspot** — drive the multi-turn
+> agent loop, behind the budget governor, with confirmed failures written back as candidate gold and
+> a per-probe JSONL forensic trace. Design lives in the build plan
+> ([`docs/DESIGN.md`](docs/DESIGN.md)) and two decision records:
+> [ADR 0001](docs/decisions/0001-explore-agentically-judge-structurally.md) (explore agentically,
+> judge structurally) and
 > [ADR 0002](docs/decisions/0002-multi-turn-social-engineering-and-guarded-spoiler-judge.md)
 > (multi-turn social engineering + a guarded spoiler-leak judge). Tracked as **Post 19** of the
 > [Pepper & Carrot AI-powered flipbook](https://bearbearyu1223.github.io/) series.
@@ -73,18 +74,23 @@ src/pepper_carrot_redteam/
 ├── agent.py        # the agentic loop: Claude + tool use decides and adapts the probes (multi-turn)
 ├── oracle.py       # verdicts — structural (spoiler boundary) + guarded LLM judges (fuzzy)
 ├── governor.py     # budget + termination (max turns / tool calls / USD)
-├── tracing.py      # per-probe JSONL forensic record (Phase 2)
+├── tracing.py      # per-probe JSONL forensic record
 ├── report.py       # findings report + candidate-gold writer (eval schema)
 └── run.py          # CLI entrypoint
 ```
 
-## Scope
+## Strategies
 
-**Phase 1 (MVP):** two strategies — **spoiler** (dual oracle: structural search + a guarded
-spoiler-leak judge on a multi-turn `ask` path) and **hallucination** (LLM judge) — against one reader
-position, behind a budget governor, with confirmed failures written back as candidate gold.
-**Phase 2:** out-of-domain / prompt injection, retrieval blind spots, and a per-probe JSONL tracer.
-See [`docs/DESIGN.md`](docs/DESIGN.md) §8 for the full phased build order.
+| strategy | tools | oracle | confirmed failure → eval gold |
+|---|---|---|---|
+| **spoiler** | `search` + multi-turn `ask` | structural boundary check ∥ guarded spoiler-leak judge | `gold_refusal` kind:spoiler |
+| **hallucination** | multi-turn `ask` (+ paired wiki `search` for grounding) | guarded groundedness judge | `gold_refusal` kind:unanswerable |
+| **injection** | multi-turn `ask` | structural (boundary-widening) ∥ guarded out-of-domain judge | `gold_refusal` kind:spoiler / out_of_domain |
+| **blindspot** | `probe_retrieval` | semi-structural paraphrase-divergence (no model) | `gold_retrieval` (query + dropped chunk) |
+
+All against one reader position, behind a budget governor, with confirmed failures written back as
+candidate gold. See [`docs/DESIGN.md`](docs/DESIGN.md) §3–§5 for the full design and ADR 0001/0002
+for the load-bearing decisions.
 
 ## Safety / scope note
 
