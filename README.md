@@ -1,8 +1,13 @@
 # pepper-carrot-redteam
 
-> **Status: skeleton.** Design is settled (see [`docs/DESIGN.md`](docs/DESIGN.md) and
-> [ADR 0001](docs/decisions/0001-explore-agentically-judge-structurally.md)); the agent loop,
-> oracle, and gold hand-off are stubs to be filled in. Tracked as **Post 19** of the
+> **Status: Phase 1 (MVP) implemented.** The agent loop, both guarded judges, the multi-turn `ask`
+> path, and the candidate-gold hand-off are working and green (`ruff` · `mypy --strict` · `pytest`).
+> Phase 2 (out-of-domain/injection, retrieval blind spots, JSONL tracer) is designed but not yet
+> built. Design lives in the build plan ([`docs/DESIGN.md`](docs/DESIGN.md)) and two decision
+> records: [ADR 0001](docs/decisions/0001-explore-agentically-judge-structurally.md) (explore
+> agentically, judge structurally) and
+> [ADR 0002](docs/decisions/0002-multi-turn-social-engineering-and-guarded-spoiler-judge.md)
+> (multi-turn social engineering + a guarded spoiler-leak judge). Tracked as **Post 19** of the
 > [Pepper & Carrot AI-powered flipbook](https://bearbearyu1223.github.io/) series.
 
 An **agentic red-teamer** for the deployed [Pepper & Carrot reading companion](https://github.com/bearbearyu1223/pepper-carrot-companion-workshop).
@@ -41,14 +46,22 @@ redteam discovers a failure  →  human triages  →  frozen into pepper-carrot-
 
 Find once, guard forever.
 
-## Quick start (once implemented)
+## Quick start
 
 ```bash
 cp .env.example .env        # fill in ANTHROPIC_API_KEY; MCP_SERVER_URL defaults to the live server
 uv sync
+
 uv run pepper-carrot-redteam --strategy spoiler --episode 2 --page 3
-# → a findings report + any confirmed failures written as *.candidate.yaml
+uv run pepper-carrot-redteam --strategy hallucination
+uv run pepper-carrot-redteam --strategy spoiler --dry-run    # 1 probe, no gold written (cheap smoke)
 ```
+
+Each run writes a Markdown findings report to `findings/<run-id>.md` and, for any **confirmed**
+failures, candidate gold to `EVAL_GOLD_DIR` as `redteam-<oracle>-<run-id>.candidate.yaml` (skipped
+under `--dry-run`). Use `-v` for per-probe progress (tool · intent · verdict · live budget) and
+`-vv` to log every `search`/`ask`/judge call with latencies and session continuity — the debugging
+view. `--max-tool-calls N` overrides the budget cap for a single run.
 
 ## Layout
 
@@ -56,19 +69,22 @@ uv run pepper-carrot-redteam --strategy spoiler --episode 2 --page 3
 src/pepper_carrot_redteam/
 ├── config.py       # env-driven settings (server URL, models, budgets, target position)
 ├── client.py       # MCP client wrapper — search / ask (same tools as the eval)
-├── strategies.py   # attack missions (spoiler, hallucination, injection) + their oracles
-├── agent.py        # the agentic loop: Claude + tool use decides and adapts the probes
-├── oracle.py       # verdicts — structural (spoiler boundary) + guarded LLM judge (fuzzy)
+├── strategies.py   # attack missions (spoiler, hallucination; +injection/blind-spots in Phase 2)
+├── agent.py        # the agentic loop: Claude + tool use decides and adapts the probes (multi-turn)
+├── oracle.py       # verdicts — structural (spoiler boundary) + guarded LLM judges (fuzzy)
 ├── governor.py     # budget + termination (max turns / tool calls / USD)
+├── tracing.py      # per-probe JSONL forensic record (Phase 2)
 ├── report.py       # findings report + candidate-gold writer (eval schema)
 └── run.py          # CLI entrypoint
 ```
 
-## Scope (MVP)
+## Scope
 
-Two strategies — **spoiler** (structural oracle) and **hallucination** (LLM judge) — against one
-reader position, behind a budget governor, with confirmed failures written back as candidate gold.
-Injection is a stretch goal. See [`docs/DESIGN.md`](docs/DESIGN.md) for the full plan.
+**Phase 1 (MVP):** two strategies — **spoiler** (dual oracle: structural search + a guarded
+spoiler-leak judge on a multi-turn `ask` path) and **hallucination** (LLM judge) — against one reader
+position, behind a budget governor, with confirmed failures written back as candidate gold.
+**Phase 2:** out-of-domain / prompt injection, retrieval blind spots, and a per-probe JSONL tracer.
+See [`docs/DESIGN.md`](docs/DESIGN.md) §8 for the full phased build order.
 
 ## Safety / scope note
 

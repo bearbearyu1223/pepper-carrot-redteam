@@ -11,7 +11,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 # Rough per-call cost estimates (USD) for the governor's ceiling. Tune against real billing.
-_COST = {"ask": 0.01, "search": 0.0005}
+# `judge` is a cross-model verdict call (oracle.py); the dual spoiler oracle and the hallucination
+# oracle each make one per `ask` probe, so the USD ceiling must account for it.
+_COST = {"ask": 0.01, "search": 0.0005, "judge": 0.005}
 
 
 @dataclass

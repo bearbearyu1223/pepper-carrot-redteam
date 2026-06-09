@@ -26,7 +26,7 @@ def _search_result(*pages: tuple[int, int]) -> dict[str, Any]:
 
 
 def test_boundary_holds_when_all_pages_are_before_cursor() -> None:
-    # Reader at (2, 3): pages from ep1 (any page) and ep2 p1–p2 are all safe.
+    # Reader at (2, 3): pages from ep1 (any page) and ep2 p1-p2 are all safe.
     result = _search_result((1, 20), (2, 1), (2, 2))
     verdict = spoiler_leaked(result, episode=2, page=3)
     assert verdict.failed is False
