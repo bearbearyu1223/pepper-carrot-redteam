@@ -1,7 +1,7 @@
 [project]
 name = "pepper-carrot-redteam"
 version = "0.1.0"
-description = "An agentic red-teamer for the Pepper & Carrot RAG app: an MCP client that decides its own probes to discover failures, then writes them back as candidate gold for the deterministic evaluator"
+description = "An agentic red-teamer for the Pepper & Carrot AI Flipbook app: an MCP client that decides its own probes to discover failures, then writes them back as candidate gold for the deterministic evaluator"
 requires-python = ">=3.11"
 dependencies = [
     "fastmcp>=2.0",       # MCP client over Streamable HTTP (same server as the eval)
