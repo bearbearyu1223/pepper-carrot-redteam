@@ -10,5 +10,7 @@ dist/
 .uv/
 uv.lock
 findings/
-traces/
+# Run output is ignored, except one curated example trace cited in the blog (Post 19).
+traces/*
+!traces/run-20260609-171653.jsonl
 *.candidate.yaml
