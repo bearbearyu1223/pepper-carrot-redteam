@@ -20,6 +20,11 @@ Multi-turn (ADR 0002): the `ask` tool exposes a `continue_session` flag. The har
 server `session_id` — `continue_session=true` keeps pressing the same conversation (the companion
 remembers prior turns), `false` starts fresh. `search` is stateless, so the spoiler structural
 path is multi-turn *reasoning* only; the social-engineering pressure lives on the `ask` path.
+
+`run_strategy(force_multi_turn=True)` (the CLI's `--multi-turn`) takes the choice away from the
+agent: every `ask` after the first reuses the live session regardless of what the model emits.
+Use it to deterministically exercise the multi-turn pressure path rather than hoping the agent
+opts in.
 """
 
 from __future__ import annotations
@@ -232,10 +237,15 @@ async def _dispatch(
     page: int,
     episode_slug: str | None,
     current_session_id: str | None,
+    force_multi_turn: bool = False,
 ) -> _Dispatch:
     """Execute one probe at the pinned position and run its oracle. Charges its OWN auxiliary calls
     (a paired search and/or judge) against the governor; the agent's chosen tool is charged by the
-    caller."""
+    caller.
+
+    `force_multi_turn` overrides the agent's `continue_session` choice on `ask` probes: when true,
+    every `ask` reuses the live `session_id` (so the conversation never resets). It has no effect on
+    the first `ask` — `current_session_id` is still None then, so that turn is always fresh."""
     if name == "search":  # spoiler structural path
         query = str(raw.get("query") or "")
         result = await client.search(
@@ -259,7 +269,7 @@ async def _dispatch(
 
     # ── ask (multi-turn capable) ──
     question = str(raw.get("question") or "")
-    continue_session = bool(raw.get("continue_session", False))
+    continue_session = force_multi_turn or bool(raw.get("continue_session", False))
     sid_in = current_session_id if continue_session else None
 
     if strategy.oracle == "injection":
@@ -351,8 +361,14 @@ async def run_strategy(
     governor: Governor,
     episode: int,
     page: int,
+    force_multi_turn: bool = False,
 ) -> list[Probe]:
-    """Drive one strategy to completion (or budget) and return the probes it produced."""
+    """Drive one strategy to completion (or budget) and return the probes it produced.
+
+    `force_multi_turn` (the CLI's `--multi-turn`) forces every `ask` probe to continue the same
+    server session regardless of the agent's `continue_session` choice — the conversation never
+    resets after the first turn. No effect on `search`/`probe_retrieval` strategies, which are
+    stateless."""
     cfg = get_config()
     # Held as Any so mypy --strict doesn't fight the SDK's create() overloads over our plain tool /
     # message dicts (same pattern as the eval's Judge and the FastMCP client wrappers).
@@ -428,6 +444,7 @@ async def run_strategy(
         d = await _dispatch(
             strategy=strategy, client=client, governor=governor, name=tool_block.name, raw=raw,
             episode=episode, page=page, episode_slug=episode_slug, current_session_id=session_id,
+            force_multi_turn=force_multi_turn,
         )
         if d.tool == "ask" and d.session_id:
             session_id = d.session_id

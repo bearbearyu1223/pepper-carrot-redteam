@@ -55,14 +55,18 @@ uv sync
 
 uv run pepper-carrot-redteam --strategy spoiler --episode 2 --page 3
 uv run pepper-carrot-redteam --strategy hallucination
-uv run pepper-carrot-redteam --strategy spoiler --dry-run    # 1 probe, no gold written (cheap smoke)
+uv run pepper-carrot-redteam --strategy spoiler --dry-run     # 1 probe, no gold written (cheap smoke)
+uv run pepper-carrot-redteam --strategy spoiler --multi-turn  # force every ask to continue the session
 ```
 
 Each run writes a Markdown findings report to `findings/<run-id>.md` and, for any **confirmed**
 failures, candidate gold to `EVAL_GOLD_DIR` as `redteam-<oracle>-<run-id>.candidate.yaml` (skipped
 under `--dry-run`). Use `-v` for per-probe progress (tool · intent · verdict · live budget) and
 `-vv` to log every `search`/`ask`/judge call with latencies and session continuity — the debugging
-view. `--max-tool-calls N` overrides the budget cap for a single run.
+view. `--max-tool-calls N` overrides the budget cap for a single run. `--multi-turn` forces every
+`ask` probe to continue the same server session (overriding the agent's per-probe choice), so the
+multi-turn pressure path is exercised deterministically instead of only when the agent opts in — it
+affects the ask-based strategies (spoiler, hallucination, injection) and is a no-op for `blindspot`.
 
 ## Layout
 

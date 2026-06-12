@@ -194,7 +194,9 @@ attack angle. The mechanics (per [ADR 0002]):
 - **The harness owns the session.** The agent never sees or sets a `session_id`; it gets a
   `continue_session: bool` on the `ask` tool. `false` (or the first `ask`) starts a fresh server
   session; `true` continues the current one. The harness captures the `session_id` the server
-  returns and threads it back.
+  returns and threads it back. The `--multi-turn` CLI flag (`run_strategy(force_multi_turn=True)`)
+  overrides the agent's choice and continues on every `ask` after the first — a deterministic way to
+  exercise the multi-turn pressure path rather than relying on the agent to opt in.
 - **Position stays pinned.** Every dispatch re-pins `current_episode` / `current_page` to the true
   reader position. The agent controls phrasing and conversational pressure, never the boundary — so
   a leak is a real finding, not a self-granted permission.

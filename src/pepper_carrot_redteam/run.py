@@ -2,8 +2,9 @@
 
     uv run pepper-carrot-redteam --strategy spoiler --episode 2 --page 3
     uv run pepper-carrot-redteam --strategy hallucination
-    uv run pepper-carrot-redteam --strategy spoiler --dry-run    # 1 probe, no gold written
-    uv run pepper-carrot-redteam --strategy spoiler -v           # per-probe progress
+    uv run pepper-carrot-redteam --strategy spoiler --dry-run     # 1 probe, no gold written
+    uv run pepper-carrot-redteam --strategy spoiler -v            # per-probe progress
+    uv run pepper-carrot-redteam --strategy spoiler --multi-turn  # force every ask to continue
 
 Writes a findings report to `findings/<run-id>.md` and, for confirmed failures, candidate gold to
 `EVAL_GOLD_DIR` (a pepper-carrot-eval/data checkout) — unless `--dry-run`.
@@ -58,6 +59,7 @@ async def _run(
     max_tool_calls: int | None,
     dry_run: bool,
     trace: bool,
+    force_multi_turn: bool,
 ) -> None:
     cfg = get_config()
     if not cfg.agent_enabled:
@@ -72,14 +74,16 @@ async def _run(
     tool_cap = 1 if dry_run else (max_tool_calls if max_tool_calls is not None else cfg.max_tool_calls)
     governor = Governor(max_turns=cfg.max_turns, max_tool_calls=tool_cap, max_usd=cfg.max_usd)
     logger.info(
-        "run %s · strategy=%s @(%d,%d) · caps: turns=%d tool_calls=%d usd=$%.2f%s",
+        "run %s · strategy=%s @(%d,%d) · caps: turns=%d tool_calls=%d usd=$%.2f%s%s",
         run_id, strategy_name, episode, page, cfg.max_turns, tool_cap, cfg.max_usd,
         " · DRY-RUN" if dry_run else "",
+        " · MULTI-TURN" if force_multi_turn else "",
     )
 
     async with RedteamMCPClient(cfg.mcp_server_url) as client:
         probes = await run_strategy(
-            strategy=strategy, client=client, governor=governor, episode=episode, page=page
+            strategy=strategy, client=client, governor=governor, episode=episode, page=page,
+            force_multi_turn=force_multi_turn,
         )
 
     markdown = report.build_findings_report(
@@ -128,6 +132,12 @@ def main() -> None:
         help="cheap smoke test: cap to 1 tool call and do not write candidate gold.",
     )
     parser.add_argument(
+        "--multi-turn", action="store_true",
+        help="force every `ask` probe to continue the same session (overrides the agent's "
+             "continue_session choice). Only affects ask-based strategies: spoiler, hallucination, "
+             "injection.",
+    )
+    parser.add_argument(
         "--no-trace", action="store_true",
         help="disable the JSONL forensic trace (traces/<run-id>.jsonl).",
     )
@@ -145,6 +155,7 @@ def main() -> None:
         _run(
             args.strategy, episode, page,
             max_tool_calls=args.max_tool_calls, dry_run=args.dry_run, trace=not args.no_trace,
+            force_multi_turn=args.multi_turn,
         )
     )
 
