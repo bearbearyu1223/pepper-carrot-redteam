@@ -9,9 +9,10 @@ dist/
 *.egg-info/
 .uv/
 uv.lock
-# Run output is ignored, except one curated report + trace pair cited in the blog (Post 19).
+# Run output is ignored, except a few curated examples cited in the blog (Post 19).
 findings/*
 !findings/run-20260609-171653.md
 traces/*
 !traces/run-20260609-171653.jsonl
+!traces/run-20260611-210046.jsonl
 *.candidate.yaml
