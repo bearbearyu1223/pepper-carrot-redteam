@@ -15,4 +15,5 @@ findings/*
 traces/*
 !traces/run-20260609-171653.jsonl
 !traces/run-20260611-210046.jsonl
+!traces/run-20260611-213026.jsonl
 *.candidate.yaml

@@ -128,7 +128,7 @@ class RedteamMCPClient:
             component="ask", latency_s=latency, input=args,
             output={
                 "answer_chars": len(answer),
-                "answer_head": answer[:300],
+                "answer": answer,  # full reply — the trace is the forensic record
                 "session_id": content.get("session_id"),
                 "retrieved_doc_ids": content.get("retrieved_doc_ids", []),
             },
