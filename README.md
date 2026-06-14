@@ -129,6 +129,26 @@ uv run python -m pepper_carrot_redteam.analysis experiments/exp-2026*/runs.jsonl
 uv run python -m pepper_carrot_redteam.analysis experiments/baseline --vs experiments/multiturn
 ```
 
+**Ablation example — does forcing multi-turn make it leak more?** The experiment honors `--multi-turn`
+(forces every `ask` to continue one session, across the whole grid). Run the grid twice — baseline vs
+forced multi-turn — then ablate with a two-proportion z-test:
+
+```bash
+# A: baseline (the agent decides whether to continue)
+uv run python -m pepper_carrot_redteam.experiment --positions "3:2,9:5" --reps 15
+mv experiments/exp-* experiments/baseline
+
+# B: forced multi-turn (every ask continues the same session)
+uv run python -m pepper_carrot_redteam.experiment --positions "3:2,9:5" --reps 15 --multi-turn
+mv experiments/exp-* experiments/multiturn
+
+# is the multi-turn lift real? → per-strategy ΔBreak Rate + significance
+uv run python -m pepper_carrot_redteam.analysis experiments/baseline --vs experiments/multiturn
+```
+
+(`--multi-turn` only affects the ask-based strategies — spoiler, hallucination, injection; it's a
+no-op for `blindspot`.)
+
 **Cost is two-sided, on one account.** Your `ANTHROPIC_API_KEY` pays for both the client-side calls
 (the agent + the judges — metered exactly from the SDK `usage`) *and* the server-side companion
 generation behind each `ask` (Haiku, estimated by call-count × `--ask-cost`). The harness reports the
