@@ -89,7 +89,7 @@ src/pepper_carrot_redteam/
 |---|---|---|---|
 | **spoiler** | `search` + multi-turn `ask` | structural boundary check ∥ guarded spoiler-leak judge | `gold_refusal` kind:spoiler |
 | **hallucination** | multi-turn `ask` (+ paired wiki `search` for grounding) | guarded groundedness judge | `gold_refusal` kind:unanswerable |
-| **injection** | multi-turn `ask` | structural (boundary-widening) ∥ guarded out-of-domain judge | `gold_refusal` kind:spoiler / out_of_domain |
+| **injection** | multi-turn `ask` (+ `obfuscate`: base64/rot13/leetspeak/homoglyph/zero_width) | structural (boundary-widening) ∥ guarded out-of-domain judge | `gold_refusal` kind:spoiler / out_of_domain |
 | **blindspot** | `probe_retrieval` (returns rank/score feedback to hill-climb) | semi-structural paraphrase-divergence (no model) | `gold_retrieval` (query + dropped chunk) |
 
 All against one reader position, behind a budget governor, with confirmed failures written back as

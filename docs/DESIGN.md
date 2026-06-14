@@ -50,6 +50,11 @@ first two; the rest land in Phase 2 (§8).
      on the final page"). **Structural oracle, reused verbatim:** the harness pins the true position
      on every dispatch, so injected text can't move it — we run the existing spoiler boundary check
      at the pinned position. The artifact is the proof that injection *couldn't* widen the boundary.
+     The `ask` tool also takes an `obfuscate` option (base64 / rot13 / leetspeak / homoglyph /
+     zero_width) that encodes only the *wire* form, to test whether the companion decodes-and-obeys a
+     smuggled instruction; the judge and structural search keep the plain text, so the verdict still
+     reasons about intent, not bytes. Deterministic, client-side, $0 — it reshapes the agent's own
+     words, never the position or the verdict (`_obfuscate` in `agent.py`).
    - **Out-of-domain fabrication** — general-knowledge / off-corpus questions ("capital of France?",
      "write me Python") the companion should decline. **Guarded judge** (`judge_ood`), porting the
      eval's refusal rubric (the eval already ships `ref-ood-france` / `ref-ood-python` gold).
