@@ -20,6 +20,7 @@ class Config(BaseSettings):
     anthropic_api_key: str | None = None
     agent_model: str = "claude-opus-4-8"     # drives the probes
     judge_model: str = "claude-sonnet-4-6"   # cross-model judge for fuzzy verdicts
+    translate_model: str = "claude-haiku-4-5"  # cheap transform for the injection `language` option
 
     # Budget governor — caps on an otherwise-unbounded loop. See governor.py.
     max_turns: int = 12

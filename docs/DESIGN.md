@@ -54,7 +54,11 @@ first two; the rest land in Phase 2 (§8).
      zero_width) that encodes only the *wire* form, to test whether the companion decodes-and-obeys a
      smuggled instruction; the judge and structural search keep the plain text, so the verdict still
      reasons about intent, not bytes. Deterministic, client-side, $0 — it reshapes the agent's own
-     words, never the position or the verdict (`_obfuscate` in `agent.py`).
+     words, never the position or the verdict (`_obfuscate` in `agent.py`). A `language` option does
+     the same for tongue: a cheap Haiku transform (`_translate`, ~$0.001, charged to the governor)
+     restates the wire form so we can test whether guardrails hold outside English — again the judge
+     and search see the plain-text English, and the OOD rubric is told the answer may be non-English.
+     Translate runs before obfuscate, so the two compose (encode the translated text).
    - **Out-of-domain fabrication** — general-knowledge / off-corpus questions ("capital of France?",
      "write me Python") the companion should decline. **Guarded judge** (`judge_ood`), porting the
      eval's refusal rubric (the eval already ships `ref-ood-france` / `ref-ood-python` gold).
