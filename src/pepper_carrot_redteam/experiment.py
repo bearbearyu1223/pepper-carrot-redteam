@@ -14,6 +14,9 @@ a cheap smoke batch.
     # $0 pipeline check — fakes the model + MCP, no key, no network:
     uv run python -m pepper_carrot_redteam.experiment --mock --reps 2
 
+    # debug a single run — per-turn logs (-v / -vv) and a full JSONL trace:
+    uv run python -m pepper_carrot_redteam.experiment --strategies spoiler --reps 1 -v --trace
+
     # real metered smoke (needs ANTHROPIC_API_KEY; spends real money). The governor caps
     # (MAX_TURNS / MAX_TOOL_CALLS / MAX_USD / STALL_PATIENCE) and TARGET_EPISODE/PAGE come from
     # .env unless overridden by a flag (--max-tool-calls, --episode, --page, --multi-turn):
@@ -44,7 +47,9 @@ from .client import RedteamMCPClient
 from .config import get_config
 from .governor import Governor
 from .oracle import CRITICAL
+from .run import _setup_logging
 from .strategies import ALL
+from .tracing import Tracer, set_tracer
 
 _EXPERIMENTS = Path(__file__).resolve().parents[2] / "experiments"
 
@@ -264,7 +269,7 @@ class _CountingMCP:
 async def _run_one(
     client: Any, strategy_name: str, *, episode: int, page: int,
     max_tool_calls: int, force_multi_turn: bool, meter: Meter, rep: int,
-    companion_prices: dict[str, float],
+    companion_prices: dict[str, float], trace_dir: Path | None = None,
 ) -> dict[str, Any]:
     cfg = get_config()
     before = meter.snapshot()
@@ -273,11 +278,19 @@ async def _run_one(
         max_turns=cfg.max_turns, max_tool_calls=max_tool_calls, max_usd=cfg.max_usd,
         stall_patience=cfg.stall_patience,
     )
+    run_id = f"{strategy_name}-rep{rep}"
+    if trace_dir is not None:  # full forensic JSONL: reasoning, answers, judge verdicts
+        trace_dir.mkdir(parents=True, exist_ok=True)
+        set_tracer(Tracer(trace_dir / f"{run_id}.jsonl", run_id))
     t0 = time.perf_counter()
-    probes = await run_strategy(
-        strategy=ALL[strategy_name], client=client, governor=gov,
-        episode=episode, page=page, force_multi_turn=force_multi_turn,
-    )
+    try:
+        probes = await run_strategy(
+            strategy=ALL[strategy_name], client=client, governor=gov,
+            episode=episode, page=page, force_multi_turn=force_multi_turn,
+        )
+    finally:
+        if trace_dir is not None:
+            set_tracer(None)
     wall = time.perf_counter() - t0
     tokens = _diff(before, meter.snapshot())
     mcp_calls = {k: meter.mcp.get(k, 0) - mcp_before.get(k, 0) for k in meter.mcp}
@@ -299,7 +312,7 @@ async def _run_one(
 async def run_grid(
     *, strategies: list[str], episode: int, page: int, reps: int,
     max_tool_calls: int, force_multi_turn: bool, mock: bool, meter: Meter,
-    companion_prices: dict[str, float],
+    companion_prices: dict[str, float], trace_dir: Path | None = None,
 ) -> list[dict[str, Any]]:
     cfg = get_config()
     records: list[dict[str, Any]] = []
@@ -311,7 +324,7 @@ async def run_grid(
                 rec = await _run_one(
                     client, strategy_name, episode=episode, page=page,
                     max_tool_calls=max_tool_calls, force_multi_turn=force_multi_turn,
-                    meter=meter, rep=rep, companion_prices=companion_prices,
+                    meter=meter, rep=rep, companion_prices=companion_prices, trace_dir=trace_dir,
                 )
                 records.append(rec)
                 print(
@@ -388,7 +401,12 @@ def main() -> None:
                         help="estimated server-side $ per `search` (retrieval embedding).")
     parser.add_argument("--mock", action="store_true",
                         help="fake the model + MCP — validates the pipeline for $0, no key/network.")
+    parser.add_argument("-v", "--verbose", action="count", default=0,
+                        help="-v = per-turn agent logs (probe · verdict · governor); -vv = every call.")
+    parser.add_argument("--trace", action="store_true",
+                        help="write a full JSONL forensic trace per run to experiments/<exp-id>/traces/.")
     args = parser.parse_args()
+    _setup_logging(args.verbose)
 
     cfg = get_config()
     if not args.mock and not cfg.agent_enabled:
@@ -414,10 +432,11 @@ def main() -> None:
           f"stall={cfg.stall_patience}{' · MOCK' if args.mock else ''} ===")
 
     companion_prices = {"ask": args.ask_cost, "search": args.search_cost}
+    trace_dir = (out_dir / "traces") if args.trace else None
     records = asyncio.run(run_grid(
         strategies=strategies, episode=episode, page=page, reps=args.reps,
         max_tool_calls=tool_cap, force_multi_turn=args.multi_turn,
-        mock=args.mock, meter=meter, companion_prices=companion_prices,
+        mock=args.mock, meter=meter, companion_prices=companion_prices, trace_dir=trace_dir,
     ))
 
     (out_dir / "runs.jsonl").write_text(
@@ -432,7 +451,8 @@ def main() -> None:
               f"cache_read={t['cache_read']:>7} calls={t['calls']:>4}")
     print(f"companion MCP calls (server-side, estimated): "
           f"ask={meter.mcp.get('ask', 0)} search={meter.mcp.get('search', 0)}")
-    print(f"\nwrote {out_dir}/runs.jsonl + summary.txt")
+    print(f"\nwrote {out_dir}/runs.jsonl + summary.txt"
+          f"{' + traces/' if trace_dir else ''}")
 
 
 if __name__ == "__main__":
