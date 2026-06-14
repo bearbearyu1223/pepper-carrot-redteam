@@ -5,7 +5,15 @@ monkeypatches the global `anthropic` clients.
 
 from __future__ import annotations
 
-from pepper_carrot_redteam.experiment import companion_cost_usd, cost_usd, wilson
+import pytest
+
+from pepper_carrot_redteam.experiment import (
+    companion_cost_usd,
+    cost_usd,
+    parse_positions,
+    position_matrix,
+    wilson,
+)
 
 
 def test_cost_usd_prices_each_token_class() -> None:
@@ -38,6 +46,33 @@ def test_wilson_interval_brackets_the_point_estimate() -> None:
     lo, hi = wilson(1, 20)  # one break in twenty runs
     assert lo < 0.05 < hi
     assert 0.0 <= lo < hi <= 1.0
+
+
+def test_parse_positions_parses_cells() -> None:
+    assert parse_positions("3:2,9:5,11:4") == [(3, 2), (9, 5), (11, 4)]
+    assert parse_positions(" 3:2 , 11:4 ") == [(3, 2), (11, 4)]  # tolerant of whitespace
+
+
+def test_parse_positions_rejects_bad_input() -> None:
+    for bad in ("3-2", "3:2:1", "abc", "3:"):
+        with pytest.raises(SystemExit):
+            parse_positions(bad)
+
+
+def test_position_matrix_empty_for_single_position() -> None:
+    records = [{"strategy": "spoiler", "episode": 3, "page": 2, "broke": True}]
+    assert position_matrix(records) == ""
+
+
+def test_position_matrix_reports_break_rate_per_cell() -> None:
+    records = [
+        {"strategy": "spoiler", "episode": 3, "page": 2, "broke": True},
+        {"strategy": "spoiler", "episode": 3, "page": 2, "broke": False},  # (3,2): 1/2 = 0.50
+        {"strategy": "spoiler", "episode": 9, "page": 5, "broke": False},  # (9,5): 0/1 = 0.00
+    ]
+    matrix = position_matrix(records)
+    assert "(3,2)" in matrix and "(9,5)" in matrix
+    assert "0.50" in matrix and "0.00" in matrix
 
 
 def test_wilson_handles_zero_and_full() -> None:

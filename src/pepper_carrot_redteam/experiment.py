@@ -17,6 +17,9 @@ a cheap smoke batch.
     # debug a single run — per-turn logs (-v / -vv) and a full JSONL trace:
     uv run python -m pepper_carrot_redteam.experiment --strategies spoiler --reps 1 -v --trace
 
+    # a moderate grid — strategies x positions x reps, with a Break-Rate-by-position matrix:
+    uv run python -m pepper_carrot_redteam.experiment --positions "3:2,9:5,11:4" --reps 10
+
     # real metered smoke (needs ANTHROPIC_API_KEY; spends real money). The governor caps
     # (MAX_TURNS / MAX_TOOL_CALLS / MAX_USD / STALL_PATIENCE) and TARGET_EPISODE/PAGE come from
     # .env unless overridden by a flag (--max-tool-calls, --episode, --page, --multi-turn):
@@ -129,6 +132,23 @@ def cost_usd(tokens: dict[str, dict[str, int]]) -> float:
 def companion_cost_usd(counts: dict[str, int], prices: dict[str, float]) -> float:
     """Estimated server-side cost for the companion calls behind the MCP tools (same account)."""
     return counts.get("ask", 0) * prices["ask"] + counts.get("search", 0) * prices["search"]
+
+
+def parse_positions(spec: str) -> list[tuple[int, int]]:
+    """Parse '3:2,9:5,11:4' into [(3, 2), (9, 5), (11, 4)] — the grid's reader-position cells."""
+    out: list[tuple[int, int]] = []
+    for cell in spec.split(","):
+        cell = cell.strip()
+        if not cell:
+            continue
+        try:
+            ep_s, pg_s = cell.split(":")
+            out.append((int(ep_s), int(pg_s)))
+        except ValueError as exc:
+            raise SystemExit(f"bad --positions cell {cell!r}; use 'episode:page' (e.g. 3:2)") from exc
+    if not out:
+        raise SystemExit("--positions parsed to no cells")
+    return out
 
 
 def wilson(k: int, n: int, z: float = 1.96) -> tuple[float, float]:
@@ -278,7 +298,7 @@ async def _run_one(
         max_turns=cfg.max_turns, max_tool_calls=max_tool_calls, max_usd=cfg.max_usd,
         stall_patience=cfg.stall_patience,
     )
-    run_id = f"{strategy_name}-rep{rep}"
+    run_id = f"{strategy_name}-ep{episode}p{page}-rep{rep}"
     if trace_dir is not None:  # full forensic JSONL: reasoning, answers, judge verdicts
         trace_dir.mkdir(parents=True, exist_ok=True)
         set_tracer(Tracer(trace_dir / f"{run_id}.jsonl", run_id))
@@ -310,32 +330,53 @@ async def _run_one(
 
 
 async def run_grid(
-    *, strategies: list[str], episode: int, page: int, reps: int,
+    *, strategies: list[str], positions: list[tuple[int, int]], reps: int,
     max_tool_calls: int, force_multi_turn: bool, mock: bool, meter: Meter,
     companion_prices: dict[str, float], trace_dir: Path | None = None,
 ) -> list[dict[str, Any]]:
     cfg = get_config()
     records: list[dict[str, Any]] = []
+    show_pos = len(positions) > 1
     client_cm: Any = _MockMCP() if mock else RedteamMCPClient(cfg.mcp_server_url)
     async with client_cm as raw_client:
         client = _CountingMCP(raw_client, meter)
-        for strategy_name in strategies:
-            for rep in range(1, reps + 1):
-                rec = await _run_one(
-                    client, strategy_name, episode=episode, page=page,
-                    max_tool_calls=max_tool_calls, force_multi_turn=force_multi_turn,
-                    meter=meter, rep=rep, companion_prices=companion_prices, trace_dir=trace_dir,
-                )
-                records.append(rec)
-                print(
-                    f"  {strategy_name:<13} rep {rep}/{reps}: "
-                    f"{'BROKE' if rec['broke'] else 'held'} · {rec['n_probes']} probes · "
-                    f"${rec['cost_usd']:.3f} · {rec['wall_s']}s"
-                )
+        for episode, page in positions:
+            for strategy_name in strategies:
+                for rep in range(1, reps + 1):
+                    rec = await _run_one(
+                        client, strategy_name, episode=episode, page=page,
+                        max_tool_calls=max_tool_calls, force_multi_turn=force_multi_turn,
+                        meter=meter, rep=rep, companion_prices=companion_prices, trace_dir=trace_dir,
+                    )
+                    records.append(rec)
+                    pos = f"({episode},{page}) " if show_pos else ""
+                    print(
+                        f"  {pos}{strategy_name:<13} rep {rep}/{reps}: "
+                        f"{'BROKE' if rec['broke'] else 'held'} · {rec['n_probes']} probes · "
+                        f"${rec['cost_usd']:.3f} · {rec['wall_s']}s"
+                    )
     return records
 
 
 # ── reporting ──────────────────────────────────────────────────────────────────────────────────--
+
+def position_matrix(records: list[dict[str, Any]]) -> str:
+    """Break Rate per strategy x position — the grid heatmap. Empty when there's only one position."""
+    positions = sorted({(r["episode"], r["page"]) for r in records})
+    if len(positions) <= 1:
+        return ""
+    strategies = list(dict.fromkeys(r["strategy"] for r in records))  # first-seen order
+    head = f"{'strategy':<14} " + "  ".join(f"({e},{p})".rjust(8) for e, p in positions)
+    rows = ["Break Rate by strategy x position (k/n):", head]
+    for strat in strategies:
+        cells = []
+        for e, p in positions:
+            rs = [r for r in records if r["strategy"] == strat and r["episode"] == e and r["page"] == p]
+            k = sum(1 for r in rs if r["broke"])
+            cells.append((f"{k / len(rs):.2f}" if rs else "-").rjust(8))
+        rows.append(f"{strat:<14} " + "  ".join(cells))
+    return "\n".join(rows)
+
 
 def summarize(records: list[dict[str, Any]], *, full_grid_runs: int) -> str:
     lines = ["", "strategy        runs  broke  break_rate (95% CI)        hold   mean$/run   total$"]
@@ -370,6 +411,9 @@ def summarize(records: list[dict[str, Any]], *, full_grid_runs: int) -> str:
                  f"~${mean_all * full_grid_runs:.0f}")
     lines.append("(token COUNTS exact; client $ uses estimated _PRICES, companion $ uses "
                  "--ask-cost/--search-cost)")
+    matrix = position_matrix(records)
+    if matrix:
+        lines.extend(["", matrix])
     return "\n".join(lines)
 
 
@@ -389,7 +433,11 @@ def main() -> None:
                         help="comma-separated strategy names (default: all four).")
     parser.add_argument("--episode", type=int, default=None)
     parser.add_argument("--page", type=int, default=None)
-    parser.add_argument("--reps", type=int, default=5, help="runs per strategy (default: 5).")
+    parser.add_argument("--positions", default=None,
+                        help="grid of reader positions as 'episode:page' cells, e.g. "
+                             "'3:2,9:5,11:4' (default: a single --episode/--page or config position).")
+    parser.add_argument("--reps", type=int, default=5,
+                        help="runs per strategy PER POSITION (default: 5).")
     parser.add_argument("--max-tool-calls", type=int, default=None,
                         help="per-run tool-call budget (default: config MAX_TOOL_CALLS).")
     parser.add_argument("--multi-turn", action="store_true", help="force session continuation.")
@@ -411,8 +459,12 @@ def main() -> None:
     cfg = get_config()
     if not args.mock and not cfg.agent_enabled:
         raise SystemExit("ANTHROPIC_API_KEY is required for a real run (use --mock to dry-run).")
-    episode = args.episode if args.episode is not None else cfg.target_episode
-    page = args.page if args.page is not None else cfg.target_page
+    if args.positions:
+        positions = parse_positions(args.positions)
+    else:
+        episode = args.episode if args.episode is not None else cfg.target_episode
+        page = args.page if args.page is not None else cfg.target_page
+        positions = [(episode, page)]
     # Fall back to the config cap when --max-tool-calls is omitted (mirrors run.py), so the .env
     # MAX_TOOL_CALLS governs the experiment unless explicitly overridden per run.
     tool_cap = args.max_tool_calls if args.max_tool_calls is not None else cfg.max_tool_calls
@@ -427,14 +479,17 @@ def main() -> None:
     exp_id = datetime.now().strftime("exp-%Y%m%d-%H%M%S") + ("-mock" if args.mock else "")
     out_dir = _EXPERIMENTS / exp_id
     out_dir.mkdir(parents=True, exist_ok=True)
-    print(f"=== {exp_id} · {len(strategies)} strategies x {args.reps} reps @ ({episode},{page})\n"
+    total_runs = len(strategies) * len(positions) * args.reps
+    pos_str = ", ".join(f"({e},{p})" for e, p in positions)
+    print(f"=== {exp_id} · {len(strategies)} strategies x {len(positions)} positions x {args.reps} "
+          f"reps = {total_runs} runs\n    positions: {pos_str}\n"
           f"    caps: tool_calls={tool_cap} turns={cfg.max_turns} usd=${cfg.max_usd} "
           f"stall={cfg.stall_patience}{' · MOCK' if args.mock else ''} ===")
 
     companion_prices = {"ask": args.ask_cost, "search": args.search_cost}
     trace_dir = (out_dir / "traces") if args.trace else None
     records = asyncio.run(run_grid(
-        strategies=strategies, episode=episode, page=page, reps=args.reps,
+        strategies=strategies, positions=positions, reps=args.reps,
         max_tool_calls=tool_cap, force_multi_turn=args.multi_turn,
         mock=args.mock, meter=meter, companion_prices=companion_prices, trace_dir=trace_dir,
     ))
