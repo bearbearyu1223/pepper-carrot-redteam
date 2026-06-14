@@ -82,6 +82,7 @@ src/pepper_carrot_redteam/
 ├── tracing.py      # per-probe JSONL forensic record
 ├── report.py       # findings report + candidate-gold writer (eval schema)
 ├── experiment.py   # metered Break-Rate experiment: strategies × positions × reps (statistical eval)
+├── analysis.py     # re-analyze saved runs.jsonl: Break Rate + CIs, A/B ablation w/ significance test
 └── run.py          # CLI entrypoint
 ```
 
@@ -118,6 +119,15 @@ It prints a per-strategy Break-Rate table, a **strategy × position matrix** (th
 and a cost breakdown; per-run rows land in `experiments/<exp-id>/runs.jsonl`. Add `-v` for per-turn
 logs and `--trace` for a full JSONL trace per run. The governor caps (`MAX_TURNS` / `MAX_TOOL_CALLS`
 / `MAX_USD` / `STALL_PATIENCE`) and `TARGET_EPISODE`/`PAGE` come from `.env` unless a flag overrides.
+
+[`analysis.py`](src/pepper_carrot_redteam/analysis.py) re-analyzes saved `runs.jsonl` (no re-spending):
+combine several experiments into one report, or run an **A/B ablation** with a two-proportion
+significance test — e.g. "does `--multi-turn` raise the spoiler Break Rate, and is the gap real?"
+
+```bash
+uv run python -m pepper_carrot_redteam.analysis experiments/exp-2026*/runs.jsonl
+uv run python -m pepper_carrot_redteam.analysis experiments/baseline --vs experiments/multiturn
+```
 
 **Cost is two-sided, on one account.** Your `ANTHROPIC_API_KEY` pays for both the client-side calls
 (the agent + the judges — metered exactly from the SDK `usage`) *and* the server-side companion

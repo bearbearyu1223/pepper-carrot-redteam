@@ -145,7 +145,8 @@ pepper-carrot-redteam
 ├─ governor .......... max turns · tool-call cap · USD ceiling · stall patience  (governor.py)
 ├─ tracing ........... per-probe JSONL forensic record (Phase 2)    (tracing.py)
 ├─ outputs ........... findings report + candidate gold (eval schema)  (report.py)
-└─ experiment ........ metered Break-Rate grid over strategies × positions × reps  (experiment.py)
+├─ experiment ........ metered Break-Rate grid over strategies × positions × reps  (experiment.py)
+└─ analysis .......... re-analyze saved runs.jsonl: Break Rate + CIs, A/B ablation  (analysis.py)
                                    │
                                    ▼  confirmed failures
                        pepper-carrot-eval/data/gold_*.yaml  (after human review)
@@ -267,6 +268,11 @@ correlated (the agent adapts; multi-turn sessions share state), so each run is o
 - **Debugging.** `-v`/`-vv` surface the agent's per-turn logs; `--trace` writes a full JSONL forensic
   trace per run. Caps and target position come from `.env` unless overridden by a flag, and `--mock`
   validates the whole pipeline for $0 (no key, no network).
+- **Offline analysis (`analysis.py`).** The experiment prints a live summary, but `analysis.py`
+  re-reads saved `runs.jsonl` so you can combine several experiments into one report (Break Rate + CIs
+  per strategy and per (strategy, position), severity, probes-to-first-break, cost) or run an **A/B
+  ablation** — group A vs `--vs` group B — with a **two-proportion z-test**, e.g. "does `--multi-turn`
+  raise the spoiler Break Rate, and is the gap significant?" No re-spending; it's pure post-hoc stats.
 
 This is the bridge back to measurement: the experiment characterizes the *current* app (Break Rate
 distributions, weak positions), while each confirmed failure still flows into `pepper-carrot-eval` as

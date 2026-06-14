@@ -317,9 +317,11 @@ async def _run_one(
     client_c = cost_usd(tokens)
     companion_c = companion_cost_usd(mcp_calls, companion_prices)
     confirmed = [p for p in probes if p.verdict and p.verdict.failed]
+    first_fail_turn = next((p.turn for p in probes if p.verdict and p.verdict.failed), None)
     return {
         "strategy": strategy_name, "episode": episode, "page": page, "rep": rep,
         "broke": bool(confirmed), "n_probes": len(probes), "n_confirmed": len(confirmed),
+        "first_fail_turn": first_fail_turn,  # probes-to-first-break (None if it held)
         "n_critical": sum(1 for p in confirmed if p.verdict and p.verdict.severity == CRITICAL),
         "stop_reason": gov.stop_reason, "governor_usd": round(gov.spent_usd, 4),
         "wall_s": round(wall, 2), "tokens": tokens,
