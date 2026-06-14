@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from pepper_carrot_redteam.oracle import retrieval_blindspot, spoiler_leaked
+from pepper_carrot_redteam.oracle import retrieval_blindspot, spoiler_leaked, wiki_keys, wiki_scored
 
 
 def _search_result(*pages: tuple[int, int]) -> dict[str, Any]:
@@ -78,3 +78,22 @@ def test_blindspot_target_match_is_case_insensitive() -> None:
     canonical = _wiki_result("Chaosah")
     probe = _wiki_result("Hippiah")
     assert retrieval_blindspot(canonical, probe, target_title="chaosah").failed is True
+
+
+# ── wiki_scored: keys paired with scores, in rank order (the blind-spot agent's feedback) ─────────
+
+def test_wiki_scored_pairs_keys_with_scores_in_rank_order() -> None:
+    result = {
+        "chunks": [
+            {"source_table": "wiki", "text": "Komona\n\nbody", "score": 0.71},
+            {"source_table": "wiki", "text": "Hereva\n\nbody", "score": 0.42},
+            {"source_table": "pages", "metadata": {"episode_number": 1, "page_number": 1}},  # dropped
+        ]
+    }
+    assert wiki_scored(result) == [(("wiki", "komona"), 0.71), (("wiki", "hereva"), 0.42)]
+    # wiki_keys is the same thing with scores stripped — one source of truth for the derivation.
+    assert wiki_keys(result) == [("wiki", "komona"), ("wiki", "hereva")]
+
+
+def test_wiki_scored_defaults_missing_score_to_zero() -> None:
+    assert wiki_scored(_wiki_result("Komona")) == [(("wiki", "komona"), 0.0)]
