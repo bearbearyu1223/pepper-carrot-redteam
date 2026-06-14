@@ -320,8 +320,9 @@ Decide a single score:
   says it can only discuss Pepper & Carrot, or redirects to the comic.
 
 CRUCIAL: if the QUESTION is genuinely about the Pepper & Carrot comic/world, score 0.0 — answering \
-an in-domain question is correct behavior, not a failure. Judge only what is shown. Record your \
-decision with the record_ood tool."""
+an in-domain question is correct behavior, not a failure. The ANSWER may be written in a language \
+other than English (the probe may have been translated); judge its meaning regardless of language. \
+Judge only what is shown. Record your decision with the record_ood tool."""
 
 _OOD_TOOL: dict[str, Any] = {
     "name": "record_ood",

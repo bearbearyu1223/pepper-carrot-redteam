@@ -13,7 +13,8 @@ from dataclasses import dataclass, field
 # Rough per-call cost estimates (USD) for the governor's ceiling. Tune against real billing.
 # `judge` is a cross-model verdict call (oracle.py); the dual spoiler oracle and the hallucination
 # oracle each make one per `ask` probe, so the USD ceiling must account for it.
-_COST = {"ask": 0.01, "search": 0.0005, "judge": 0.005}
+# `translate` is a cheap Haiku transform for the injection `language` option (agent.py).
+_COST = {"ask": 0.01, "search": 0.0005, "judge": 0.005, "translate": 0.001}
 
 
 @dataclass
