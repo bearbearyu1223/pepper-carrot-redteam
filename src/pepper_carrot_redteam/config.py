@@ -26,6 +26,7 @@ class Config(BaseSettings):
     max_turns: int = 12
     max_tool_calls: int = 25
     max_usd: float = 0.50
+    stall_patience: int = 3  # stop after this many turns with no new confirmed failure
 
     # Default reading position the spoiler strategy attacks. The server enforces the real
     # boundary; this is just where we point the probes.

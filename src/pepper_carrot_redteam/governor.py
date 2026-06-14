@@ -22,7 +22,7 @@ class Governor:
     max_turns: int
     max_tool_calls: int
     max_usd: float
-    stall_patience: int = 3  # stop after this many turns with no new confirmed failure
+    stall_patience: int = 3  # turns with no new confirmed failure before stopping (config: STALL_PATIENCE)
 
     turns: int = 0
     tool_calls: int = 0
