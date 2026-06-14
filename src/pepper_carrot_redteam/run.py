@@ -72,10 +72,14 @@ async def _run(
         set_tracer(tracer)
         logger.info("tracing → %s", tracer.path)
     tool_cap = 1 if dry_run else (max_tool_calls if max_tool_calls is not None else cfg.max_tool_calls)
-    governor = Governor(max_turns=cfg.max_turns, max_tool_calls=tool_cap, max_usd=cfg.max_usd)
+    governor = Governor(
+        max_turns=cfg.max_turns, max_tool_calls=tool_cap, max_usd=cfg.max_usd,
+        stall_patience=cfg.stall_patience,
+    )
     logger.info(
-        "run %s · strategy=%s @(%d,%d) · caps: turns=%d tool_calls=%d usd=$%.2f%s%s",
+        "run %s · strategy=%s @(%d,%d) · caps: turns=%d tool_calls=%d usd=$%.2f stall=%d%s%s",
         run_id, strategy_name, episode, page, cfg.max_turns, tool_cap, cfg.max_usd,
+        cfg.stall_patience,
         " · DRY-RUN" if dry_run else "",
         " · MULTI-TURN" if force_multi_turn else "",
     )
