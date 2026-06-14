@@ -14,8 +14,10 @@ a cheap smoke batch.
     # $0 pipeline check — fakes the model + MCP, no key, no network:
     uv run python -m pepper_carrot_redteam.experiment --mock --reps 2
 
-    # real metered smoke (needs ANTHROPIC_API_KEY; spends real money):
-    uv run python -m pepper_carrot_redteam.experiment --reps 5 --max-tool-calls 8
+    # real metered smoke (needs ANTHROPIC_API_KEY; spends real money). The governor caps
+    # (MAX_TURNS / MAX_TOOL_CALLS / MAX_USD / STALL_PATIENCE) and TARGET_EPISODE/PAGE come from
+    # .env unless overridden by a flag (--max-tool-calls, --episode, --page, --multi-turn):
+    uv run python -m pepper_carrot_redteam.experiment --reps 5
 
 Writes one record per run to experiments/<exp-id>/runs.jsonl and prints a Break Rate + cost summary
 with a projected full-grid cost. The metric is **Break Rate** (fraction of runs that surface a
@@ -260,7 +262,10 @@ async def _run_one(
     cfg = get_config()
     before = meter.snapshot()
     mcp_before = dict(meter.mcp)
-    gov = Governor(max_turns=cfg.max_turns, max_tool_calls=max_tool_calls, max_usd=cfg.max_usd)
+    gov = Governor(
+        max_turns=cfg.max_turns, max_tool_calls=max_tool_calls, max_usd=cfg.max_usd,
+        stall_patience=cfg.stall_patience,
+    )
     t0 = time.perf_counter()
     probes = await run_strategy(
         strategy=ALL[strategy_name], client=client, governor=gov,
@@ -365,8 +370,8 @@ def main() -> None:
     parser.add_argument("--episode", type=int, default=None)
     parser.add_argument("--page", type=int, default=None)
     parser.add_argument("--reps", type=int, default=5, help="runs per strategy (default: 5).")
-    parser.add_argument("--max-tool-calls", type=int, default=8,
-                        help="per-run tool-call budget (default: 8, modest for a cheap smoke).")
+    parser.add_argument("--max-tool-calls", type=int, default=None,
+                        help="per-run tool-call budget (default: config MAX_TOOL_CALLS).")
     parser.add_argument("--multi-turn", action="store_true", help="force session continuation.")
     parser.add_argument("--full-grid-runs", type=int, default=720,
                         help="run count to project the full-grid cost to (default: 4x9x20=720).")
@@ -383,6 +388,9 @@ def main() -> None:
         raise SystemExit("ANTHROPIC_API_KEY is required for a real run (use --mock to dry-run).")
     episode = args.episode if args.episode is not None else cfg.target_episode
     page = args.page if args.page is not None else cfg.target_page
+    # Fall back to the config cap when --max-tool-calls is omitted (mirrors run.py), so the .env
+    # MAX_TOOL_CALLS governs the experiment unless explicitly overridden per run.
+    tool_cap = args.max_tool_calls if args.max_tool_calls is not None else cfg.max_tool_calls
     strategies = [s.strip() for s in args.strategies.split(",") if s.strip()]
     for s in strategies:
         if s not in ALL:
@@ -394,14 +402,14 @@ def main() -> None:
     exp_id = datetime.now().strftime("exp-%Y%m%d-%H%M%S") + ("-mock" if args.mock else "")
     out_dir = _EXPERIMENTS / exp_id
     out_dir.mkdir(parents=True, exist_ok=True)
-    print(f"=== {exp_id} · {len(strategies)} strategies x {args.reps} reps "
-          f"@ ({episode},{page}) · max_tool_calls={args.max_tool_calls}"
-          f"{' · MOCK' if args.mock else ''} ===")
+    print(f"=== {exp_id} · {len(strategies)} strategies x {args.reps} reps @ ({episode},{page})\n"
+          f"    caps: tool_calls={tool_cap} turns={cfg.max_turns} usd=${cfg.max_usd} "
+          f"stall={cfg.stall_patience}{' · MOCK' if args.mock else ''} ===")
 
     companion_prices = {"ask": args.ask_cost, "search": args.search_cost}
     records = asyncio.run(run_grid(
         strategies=strategies, episode=episode, page=page, reps=args.reps,
-        max_tool_calls=args.max_tool_calls, force_multi_turn=args.multi_turn,
+        max_tool_calls=tool_cap, force_multi_turn=args.multi_turn,
         mock=args.mock, meter=meter, companion_prices=companion_prices,
     ))
 
