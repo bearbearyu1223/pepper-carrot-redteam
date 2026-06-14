@@ -59,7 +59,10 @@ first two; the rest land in Phase 2 (§8).
    establishes ground truth (a canonical query that lands a chunk at rank 1), then attacks with
    natural paraphrases; a blind spot is a chunk that was rank-1 for the canonical query but drops out
    of top-k for a reasonable paraphrase. The verdict is a checkable predicate on the two result sets
-   (`retrieval_blindspot`), so no model sits in the verdict path.
+   (`retrieval_blindspot`), so no model sits in the verdict path. The harness feeds the agent the
+   target's rank/score under both queries (`name_rank`, `paraphrase_rank`, and the `competitors` that
+   crowded it out) so it can hill-climb a paraphrase toward a miss — observation only, never a verdict
+   input (`wiki_scored` carries the scores; `_rank_score`/`_top_wiki` shape the feedback).
 
 ## 4. The one rule: explore agentically, judge structurally
 

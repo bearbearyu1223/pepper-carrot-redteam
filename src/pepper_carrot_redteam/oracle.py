@@ -91,21 +91,28 @@ def spoiler_leaked(search_result: dict[str, Any], *, episode: int, page: int) ->
 _CANON_RANK = 3
 
 
-def wiki_keys(search_result: dict[str, Any]) -> list[Key]:
-    """Extract ('wiki', <title>) keys from a wiki `search` result (rank order).
+def wiki_scored(search_result: dict[str, Any]) -> list[tuple[Key, float]]:
+    """('wiki', <title>) keys paired with their retrieval score, in rank order.
 
     The wiki key derivation mirrors `pepper_carrot_eval.corpus.chunk_key`: a wiki chunk's title is
     the first line of its canonical text, lowercased — so redteam blind-spot gold and the eval's
-    retrieval gold key on the same identifier.
+    retrieval gold key on the same identifier. The score rides along so the agent can see *how close*
+    a paraphrase came (the blind-spot path surfaces these ranks back to it); it never enters a
+    verdict.
     """
-    keys: list[Key] = []
+    scored: list[tuple[Key, float]] = []
     for chunk in search_result.get("chunks", []):
         meta = chunk.get("metadata", {}) or {}
         table = chunk.get("source_table") or meta.get("source_table", "")
         if table == "wiki":
             title = str(chunk.get("text", "")).split("\n\n", 1)[0].strip().lower()
-            keys.append(("wiki", title))
-    return keys
+            scored.append((("wiki", title), float(chunk.get("score", 0.0))))
+    return scored
+
+
+def wiki_keys(search_result: dict[str, Any]) -> list[Key]:
+    """('wiki', <title>) keys from a wiki `search` result, in rank order (scores dropped)."""
+    return [key for key, _ in wiki_scored(search_result)]
 
 
 def retrieval_blindspot(

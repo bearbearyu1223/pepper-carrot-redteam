@@ -44,12 +44,14 @@ from .governor import Governor
 from .oracle import (
     CRITICAL,
     MEDIUM,
+    Key,
     Verdict,
     judge_hallucination,
     judge_ood,
     judge_spoiler_leak,
     retrieval_blindspot,
     spoiler_leaked,
+    wiki_scored,
 )
 from .strategies import Strategy
 
@@ -158,7 +160,9 @@ _PROBE_RETRIEVAL_TOOL: dict[str, Any] = {
         "(target_title) and a natural-language paraphrase a reader might type (paraphrase_query). "
         "The harness confirms the entity is retrievable by its name, then checks whether your "
         "paraphrase fails to surface it. Favor oblique, descriptive phrasings — don't restate the "
-        "title."
+        "title. After each probe you'll see name_rank (the target's rank under its own name), "
+        "paraphrase_rank (its rank under your paraphrase, or null if your paraphrase missed it), and "
+        "the competitors that crowded it out — use those to refine the next paraphrase toward a miss."
     ),
     "input_schema": {
         "type": "object",
@@ -195,6 +199,22 @@ def _summarize_search(result: dict[str, Any]) -> dict[str, Any]:
             for c in chunks[:5]
         ],
     }
+
+
+def _rank_score(scored: list[tuple[Key, float]], target: Key) -> dict[str, Any] | None:
+    """The target's 1-based rank and score within a ranked (key, score) list, or None if absent.
+
+    Observation only — fed back to the blind-spot agent so it can see *how close* a paraphrase came
+    and hill-climb toward a miss; the verdict stays with `retrieval_blindspot`."""
+    for i, (key, score) in enumerate(scored):
+        if key == target:
+            return {"rank": i + 1, "score": round(score, 3)}
+    return None
+
+
+def _top_wiki(scored: list[tuple[Key, float]], n: int) -> list[dict[str, Any]]:
+    """The top-n wiki titles a query surfaced — what crowded out the target, in the agent's words."""
+    return [{"title": key[1], "score": round(score, 3)} for key, score in scored[:n]]
 
 
 def _combine_spoiler(structural: Verdict, judged: Verdict) -> Verdict:
@@ -262,10 +282,18 @@ async def _dispatch(
         probe = await client.search(query=paraphrase, mode="wiki", k=_WIKI_K)
         governor.charge("search")
         verdict = retrieval_blindspot(canonical, probe, target_title=target_title)
-        return _Dispatch(
-            "probe_retrieval", verdict,
-            {"target": target_title, "paraphrase": paraphrase[:80]}, None,
-        )
+        # Surface the rank/score of the target under each query so the agent can hill-climb a blind
+        # spot instead of guessing: name_rank confirms it's in the corpus, paraphrase_rank (None =
+        # missed) shows whether this phrasing dropped it, and competitors show what crowded it out.
+        target_key: Key = ("wiki", target_title.strip().lower())
+        summary: dict[str, Any] = {
+            "target": target_title,
+            "paraphrase": paraphrase[:80],
+            "name_rank": _rank_score(wiki_scored(canonical), target_key),
+            "paraphrase_rank": _rank_score(wiki_scored(probe), target_key),
+            "competitors": _top_wiki(wiki_scored(probe), 3),
+        }
+        return _Dispatch("probe_retrieval", verdict, summary, None)
 
     # ── ask (multi-turn capable) ──
     question = str(raw.get("question") or "")
