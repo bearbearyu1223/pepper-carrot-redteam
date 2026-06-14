@@ -58,9 +58,16 @@ _PRICES: dict[str, dict[str, float]] = {
 _DEFAULT_PRICE = {"input": 5.0, "output": 15.0, "cache_read": 0.5}
 
 # Estimated server-side companion cost per MCP call — billed to the SAME account as the agent/judges,
-# but invisible to this client (the MCP server doesn't return usage). ESTIMATES; override with
-# --ask-cost / --search-cost, or have the server return usage to make these exact.
-_COMPANION_COST = {"ask": 0.01, "search": 0.0005}
+# but invisible to this client (the MCP server doesn't return usage). The companion runs
+# claude-haiku-4-5, so we estimate `ask` from a typical RAG generation at Haiku prices (~2k input
+# context + ~400 output ≈ $0.004); `search` is a retrieval embedding lookup, a small flat cost.
+# These are ESTIMATES — override with --ask-cost / --search-cost, or have the server return usage to
+# meter the companion exactly.
+_HAIKU = _PRICES["claude-haiku-4-5"]
+_COMPANION_COST = {
+    "ask": round(2000 / 1e6 * _HAIKU["input"] + 400 / 1e6 * _HAIKU["output"], 4),  # ~$0.004
+    "search": 0.0002,
+}
 
 
 # ── token metering ───────────────────────────────────────────────────────────────────────────────
