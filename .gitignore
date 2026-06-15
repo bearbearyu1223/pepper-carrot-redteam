@@ -10,6 +10,7 @@ dist/
 .uv/
 uv.lock
 # Run output is ignored, except a few curated examples cited in the blog (Post 19).
+experiments/*
 findings/*
 !findings/run-20260609-171653.md
 !findings/run-20260613-221141.md

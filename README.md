@@ -3,7 +3,8 @@
 > **Status: implemented** (both phases), green on `ruff` · `mypy --strict` · `pytest`. Four
 > strategies — **spoiler**, **hallucination**, **injection**, **blindspot** — drive the multi-turn
 > agent loop, behind the budget governor, with confirmed failures written back as candidate gold and
-> a per-probe JSONL forensic trace. Design lives in the build plan
+> a per-probe JSONL forensic trace — plus a metered Break-Rate experiment harness for statistical
+> robustness measurement. Design lives in the build plan
 > ([`docs/DESIGN.md`](docs/DESIGN.md)) and two decision records:
 > [ADR 0001](docs/decisions/0001-explore-agentically-judge-structurally.md) (explore agentically,
 > judge structurally) and
@@ -72,14 +73,16 @@ affects the ask-based strategies (spoiler, hallucination, injection) and is a no
 
 ```
 src/pepper_carrot_redteam/
-├── config.py       # env-driven settings (server URL, models, budgets, target position)
+├── config.py       # env-driven settings (server URL, models, budgets + stall, target position)
 ├── client.py       # MCP client wrapper — search / ask (same tools as the eval)
-├── strategies.py   # attack missions (spoiler, hallucination; +injection/blind-spots in Phase 2)
-├── agent.py        # the agentic loop: Claude + tool use decides and adapts the probes (multi-turn)
-├── oracle.py       # verdicts — structural (spoiler boundary) + guarded LLM judges (fuzzy)
-├── governor.py     # budget + termination (max turns / tool calls / USD)
+├── strategies.py   # attack missions: spoiler · hallucination · injection · blindspot
+├── agent.py        # the agentic loop: Claude decides/adapts probes (multi-turn, obfuscate, language)
+├── oracle.py       # verdicts — structural (spoiler boundary, blindspot) + guarded LLM judges (fuzzy)
+├── governor.py     # budget + termination (max turns / tool calls / USD / stall patience)
 ├── tracing.py      # per-probe JSONL forensic record
 ├── report.py       # findings report + candidate-gold writer (eval schema)
+├── experiment.py   # metered Break-Rate experiment: strategies × positions × reps (statistical eval)
+├── analysis.py     # re-analyze saved runs.jsonl: Break Rate + CIs, A/B ablation w/ significance test
 └── run.py          # CLI entrypoint
 ```
 
@@ -95,6 +98,67 @@ src/pepper_carrot_redteam/
 All against one reader position, behind a budget governor, with confirmed failures written back as
 candidate gold. See [`docs/DESIGN.md`](docs/DESIGN.md) §3–§5 for the full design and ADR 0001/0002
 for the load-bearing decisions.
+
+## Measuring robustness: the experiment harness
+
+A single agentic run is *discovery* — coverage, not a number. Repeat it many times and aggregate,
+though, and you get a statistical robustness measurement. [`experiment.py`](src/pepper_carrot_redteam/experiment.py)
+runs a grid of **strategies × reader-positions × replicates** and reports the **Break Rate** (the
+fraction of runs that surface a confirmed failure) per strategy, with **Wilson 95% confidence
+intervals** — plus the *real* dollar cost (metered, not the governor's notional budget).
+
+```bash
+# $0 pipeline check — fakes the model + MCP, no key/network:
+uv run python -m pepper_carrot_redteam.experiment --mock --reps 2
+
+# a moderate grid: 4 strategies × 3 positions × 10 reps = 120 runs:
+uv run python -m pepper_carrot_redteam.experiment --positions "3:2,9:5,11:4" --reps 10
+```
+
+It prints a per-strategy Break-Rate table, a **strategy × position matrix** (the weak-spot heatmap),
+and a cost breakdown; per-run rows land in `experiments/<exp-id>/runs.jsonl`. Add `-v` for per-turn
+logs and `--trace` for a full JSONL trace per run. The governor caps (`MAX_TURNS` / `MAX_TOOL_CALLS`
+/ `MAX_USD` / `STALL_PATIENCE`) and `TARGET_EPISODE`/`PAGE` come from `.env` unless a flag overrides.
+
+[`analysis.py`](src/pepper_carrot_redteam/analysis.py) re-analyzes saved `runs.jsonl` (no re-spending):
+combine several experiments into one report, or run an **A/B ablation** with a two-proportion
+significance test — e.g. "does `--multi-turn` raise the spoiler Break Rate, and is the gap real?"
+
+```bash
+uv run python -m pepper_carrot_redteam.analysis experiments/exp-2026*/runs.jsonl
+uv run python -m pepper_carrot_redteam.analysis experiments/baseline --vs experiments/multiturn
+```
+
+**Ablation example — does forcing multi-turn make it leak more?** The experiment honors `--multi-turn`
+(forces every `ask` to continue one session, across the whole grid). Run the grid twice — baseline vs
+forced multi-turn — then ablate with a two-proportion z-test:
+
+```bash
+# A: baseline (the agent decides whether to continue)
+uv run python -m pepper_carrot_redteam.experiment --positions "3:2,9:5" --reps 15
+mv experiments/exp-* experiments/baseline
+
+# B: forced multi-turn (every ask continues the same session)
+uv run python -m pepper_carrot_redteam.experiment --positions "3:2,9:5" --reps 15 --multi-turn
+mv experiments/exp-* experiments/multiturn
+
+# is the multi-turn lift real? → per-strategy ΔBreak Rate + significance
+uv run python -m pepper_carrot_redteam.analysis experiments/baseline --vs experiments/multiturn
+```
+
+(`--multi-turn` only affects the ask-based strategies — spoiler, hallucination, injection; it's a
+no-op for `blindspot`.)
+
+**Cost is two-sided, on one account.** Your `ANTHROPIC_API_KEY` pays for both the client-side calls
+(the agent + the judges — metered exactly from the SDK `usage`) *and* the server-side companion
+generation behind each `ask` (Haiku, estimated by call-count × `--ask-cost`). The harness reports the
+split and projects a full-grid cost from the measured per-run cost.
+
+> The metric is **Break Rate** (report its complement, **Hold Rate** = 1 − Break Rate). Trust the
+> structural-oracle Break Rates most (no model in the verdict); the guarded-judge ones are softer, so
+> a small human judge-calibration sample is worth doing before reading too much into them. This is
+> still *measurement built on discovery* — a Break Rate with CIs, distinct from the eval's
+> deterministic score.
 
 ## Safety / scope note
 

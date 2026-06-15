@@ -124,7 +124,9 @@ Two artifacts per run:
 ## 6. Engineering concerns worth showing
 
 - **Budget governor.** Agent loops are unbounded by default. Cap max turns, max tool calls, and a
-  USD ceiling; stop on budget, on "no new failures in N turns," or on mission success. (`governor.py`)
+  USD ceiling; stop on budget, on "no new failures in N turns" (the stall detector — `STALL_PATIENCE`,
+  configurable), or on mission success. All caps come from `.env` (`MAX_TURNS` / `MAX_TOOL_CALLS` /
+  `MAX_USD` / `STALL_PATIENCE`). (`governor.py`)
 - **`ask` costs real money.** Each `ask` is a real generation against the live app (Post 17's
   honesty note). The governor's USD cap and a `--dry-run`/`--max-tool-calls 1` mode keep it cheap.
 - **Determinism boundary is explicit in code.** The agent never computes a verdict; the oracle never
@@ -140,9 +142,11 @@ pepper-carrot-redteam
 │     └─ MCP client ... search / ask on the live server            (client.py)
 ├─ oracle ............. structural (spoiler/injection) + guarded judges  (oracle.py)
 │                       judge_hallucination · judge_spoiler_leak · judge_ood
-├─ governor .......... max turns · tool-call cap · USD ceiling      (governor.py)
+├─ governor .......... max turns · tool-call cap · USD ceiling · stall patience  (governor.py)
 ├─ tracing ........... per-probe JSONL forensic record (Phase 2)    (tracing.py)
-└─ outputs ........... findings report + candidate gold (eval schema)  (report.py)
+├─ outputs ........... findings report + candidate gold (eval schema)  (report.py)
+├─ experiment ........ metered Break-Rate grid over strategies × positions × reps  (experiment.py)
+└─ analysis .......... re-analyze saved runs.jsonl: Break Rate + CIs, A/B ablation  (analysis.py)
                                    │
                                    ▼  confirmed failures
                        pepper-carrot-eval/data/gold_*.yaml  (after human review)
@@ -234,3 +238,43 @@ jq 'select(.session_id=="…")' traces/run-*.jsonl   # one social-engineering ar
 ```
 
 Gated behind `--no-trace`, like the eval.
+
+## 12. Statistical evaluation: the experiment harness
+
+A single agentic run is non-reproducible by design — it's *discovery*, coverage rather than a number.
+But repeat it many times and aggregate, and you get a **statistical robustness measurement**:
+`experiment.py` runs a grid of **strategies × reader-positions × replicates** and reports, per
+strategy, the **Break Rate** — the fraction of independent runs that surface ≥1 confirmed failure —
+with **Wilson 95% confidence intervals**. (Report its complement, the **Hold Rate** = 1 − Break Rate,
+for the reassuring framing.) The *run* is the unit of analysis, not the probe: probes within a run are
+correlated (the agent adapts; multi-turn sessions share state), so each run is one Bernoulli trial.
+
+- **Why a separate harness.** It reuses `run_strategy` directly (no findings/gold written — experiment
+  runs don't pollute the eval), loops `positions × strategies × reps` over one MCP connection, and
+  records one row per run to `experiments/<exp-id>/runs.jsonl`. The summary adds a **strategy ×
+  position matrix** — the weak-spot heatmap — on top of the per-strategy table.
+- **Honest cost metering.** The governor's `spent_usd` is a *notional* tool budget; it omits the
+  agent's own generations, which dominate. The harness wraps the Anthropic clients to tally the
+  **client-side** tokens (agent + judges) **exactly** from the SDK `usage`, and — because the MCP
+  server bills the **same account** but returns no usage — **estimates** the **server-side** companion
+  cost (Haiku `ask`) by call-count × a per-call price. It prints the split and projects a full-grid
+  cost from the measured per-run cost. Token *counts* are exact; only the $ conversion is estimated.
+- **Trust the structural Break Rates most.** Spoiler-boundary / injection-boundary / blindspot have no
+  model in the verdict, so their Break Rates are high-confidence. The guarded-judge paths
+  (hallucination, OOD, spoiler-prose) inherit judge error — a small human judge-calibration sample is
+  the right next step before over-reading them. And Break Rate is a *lower bound* on vulnerability: it
+  measures robustness against *this* attacker at *this* budget, so track it relatively (across
+  versions / positions), not as an absolute safety claim.
+- **Debugging.** `-v`/`-vv` surface the agent's per-turn logs; `--trace` writes a full JSONL forensic
+  trace per run. Caps and target position come from `.env` unless overridden by a flag, and `--mock`
+  validates the whole pipeline for $0 (no key, no network).
+- **Offline analysis (`analysis.py`).** The experiment prints a live summary, but `analysis.py`
+  re-reads saved `runs.jsonl` so you can combine several experiments into one report (Break Rate + CIs
+  per strategy and per (strategy, position), severity, probes-to-first-break, cost) or run an **A/B
+  ablation** — group A vs `--vs` group B — with a **two-proportion z-test**, e.g. "does `--multi-turn`
+  raise the spoiler Break Rate, and is the gap significant?" No re-spending; it's pure post-hoc stats.
+
+This is the bridge back to measurement: the experiment characterizes the *current* app (Break Rate
+distributions, weak positions), while each confirmed failure still flows into `pepper-carrot-eval` as
+frozen gold for a *deterministic* regression score. Run it per release and the pair becomes continuous
+discovery feeding continuous measurement.
